@@ -35,7 +35,7 @@ start:
 
 	cli
 	lgdt [gdt_descriptor]
-	mov eac, cr0
+	mov eax, cr0
 	or eax, 1
 	mov cr0, eax
 	jmp 0x08:pm_entry
@@ -60,7 +60,7 @@ disk_error:
 gdt_start:
 	dq 0
 gdt_code:
-	dw 0xFFFFm 0x0000
+	dw 0xFFFF, 0x0000
 	db 0x00, 0x9A, 0xCF, 0x00
 gdt_data:
 	dw 0xFFFF, 0x0000
@@ -68,7 +68,7 @@ gdt_data:
 gdt_end:
 
 gdt_descriptor:
-	dw gdt_end - gdt_end - 1
+	dw gdt_end - gdt_start - 1
 	dd gdt_start
 
 ; 32Bit code
@@ -85,7 +85,7 @@ pm_entry:
 	;jmp yo kernrl addressed 
 
 	;we're loading in 0x10000
-	jump 0x10000
+	jmp 0x10000
 
 message db 'loading kernel... wait a sec...', 13, 10, 0
 error_msg db 'disk error!', 13, 10, 0

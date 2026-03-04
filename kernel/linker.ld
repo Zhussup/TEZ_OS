@@ -1,16 +1,17 @@
-ENTRY (_start)
+ENTRY(_start)
 
 SECTIONS {
-	. = 0x100000;
-	.text : {
-		*(.text)
-	}
+    . = 0x10000;
 
-	.data : {
-		*(.data)
-	}
+    .text : {
+        *(.text)
+    }
 
-	.bss : {
-		*(.bss)
-	}
+    .data : {
+        *(.data)
+    }
+
+    .bss : {
+        *(.bss)
+    }
 }
