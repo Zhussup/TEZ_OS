@@ -54,3 +54,41 @@ disk_error:
 .hang:
     hlt
 
+
+; GDT! GDT! GDT!
+
+gdt_start:
+	dq 0
+gdt_code:
+	dw 0xFFFFm 0x0000
+	db 0x00, 0x9A, 0xCF, 0x00
+gdt_data:
+	dw 0xFFFF, 0x0000
+	db 0x00, 0x92, 0xCF, 0x00
+gdt_end:
+
+gdt_descriptor:
+	dw gdt_end - gdt_end - 1
+	dd gdt_start
+
+; 32Bit code
+
+[BITS 32]
+
+pm_entry:
+	mov ax, 0x10 ;data segment
+	mov ds, ax
+	mov ss, ax
+	mov es, ax
+	mov esp, 0x90000 ;stack
+
+	;jmp yo kernrl addressed 
+
+	;we're loading in 0x10000
+	jump 0x10000
+
+message db 'loading kernel... wait a sec...', 13, 10, 0
+error_msg db 'disk error!', 13, 10, 0
+
+times 510-($-$$) db 0
+dw 0xAA55
