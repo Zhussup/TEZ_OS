@@ -59,7 +59,7 @@ void neofetch(void) {
     vga_print("\n");
     vga_print_color("  OS:      ", WHITE); vga_print_color("TEZ_OS\n",           GREEN);
     vga_print_color("  Arch:    ", WHITE); vga_print_color("x86 32-bit\n",       GREEN);
-    vga_print_color("  Kernel:  ", WHITE); vga_print_color("custom C + ASM\n",   GREEN);
+    vga_print_color("  Kernel:  ", WHITE); vga_print_color("JZA kernel\n",   GREEN);
     vga_print_color("  Boot:    ", WHITE); vga_print_color("custom bootloader\n", GREEN);
     vga_print_color("  FS:      ", WHITE); vga_print_color("FAT12\n",            GREEN);
     vga_print_color("  Display: ", WHITE); vga_print_color("VGA text 80x25\n",   GREEN);
