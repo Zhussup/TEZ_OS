@@ -1,8 +1,15 @@
 #include <stdint.h>
 
 extern void ata_read(uint32_t lba, uint8_t count, void *buf);
+extern void vga_print(const char *s);
+extern void vga_print_color(const char *s, uint8_t color);
+extern void vga_putchar(char c);
 
-// Parameters FAT12 for floppy 1.44MB
+#define CYAN   0x0B
+#define WHITE  0x0F
+#define GREEN  0x0A
+#define YELLOW 0x0E
+
 #define BYTES_PER_SECTOR    512
 #define SECTORS_PER_CLUSTER 1
 #define RESERVED_SECTORS    1
@@ -10,29 +17,26 @@ extern void ata_read(uint32_t lba, uint8_t count, void *buf);
 #define ROOT_ENTRIES        224
 #define SECTORS_PER_FAT     9
 
-// Disk offset
-#define FAT_START    1                                    // sectors before FAT
-#define ROOT_START   (1 + FAT_COUNT * SECTORS_PER_FAT)   // = 19
-#define ROOT_SECTORS ((ROOT_ENTRIES * 32) / BYTES_PER_SECTOR) // = 14
-#define DATA_START   (ROOT_START + ROOT_SECTORS)          // = 33
+#define FAT_START    1
+#define ROOT_START   (1 + FAT_COUNT * SECTORS_PER_FAT)
+#define ROOT_SECTORS ((ROOT_ENTRIES * 32) / BYTES_PER_SECTOR)
+#define DATA_START   (ROOT_START + ROOT_SECTORS)
 
-// Structure of record в Root Directory (32 байта)
 typedef struct {
-    char     name[8];       // Name of the file
-    char     ext[3];        // extension
+    char     name[8];
+    char     ext[3];
     uint8_t  attributes;
     uint8_t  reserved[10];
     uint16_t time;
     uint16_t date;
-    uint16_t first_cluster; // First files cluster
-    uint32_t file_size;     // Size in bytes
+    uint16_t first_cluster;
+    uint32_t file_size;
 } __attribute__((packed)) fat12_entry_t;
 
-static uint8_t  fat_table[SECTORS_PER_FAT * BYTES_PER_SECTOR];
-static uint8_t  root_buf[ROOT_SECTORS * BYTES_PER_SECTOR];
-static int      fat_loaded = 0;
+static uint8_t fat_table[SECTORS_PER_FAT * BYTES_PER_SECTOR];
+static uint8_t root_buf[ROOT_SECTORS * BYTES_PER_SECTOR];
+static int     fat_loaded = 0;
 
-// Download FAT and Root Directory from disk
 static void fat12_load(void) {
     if (fat_loaded) return;
     ata_read(FAT_START, SECTORS_PER_FAT, fat_table);
@@ -40,9 +44,8 @@ static void fat12_load(void) {
     fat_loaded = 1;
 }
 
-// Get next cluster from FAT12
 static uint16_t fat12_next_cluster(uint16_t cluster) {
-    uint32_t offset = cluster + (cluster / 2); // 12 bit for record
+    uint32_t offset = cluster + (cluster / 2);
     uint16_t val = *(uint16_t *)(fat_table + offset);
     if (cluster & 1)
         return val >> 4;
@@ -50,16 +53,12 @@ static uint16_t fat12_next_cluster(uint16_t cluster) {
         return val & 0x0FFF;
 }
 
-// Find file in Root Directory by name (Format "FILENAME EXT")
 fat12_entry_t *fat12_find(const char *name) {
     fat12_load();
     fat12_entry_t *entries = (fat12_entry_t *)root_buf;
-
     for (int i = 0; i < ROOT_ENTRIES; i++) {
-        if (entries[i].name[0] == 0x00) break;  // end of directory
-        if (entries[i].name[0] == 0xE5) continue; // deleted file
-
-        // comparing names (11 symbols: 8 name + 3 extension)
+        if (entries[i].name[0] == 0x00) break;
+        if (entries[i].name[0] == 0xE5) continue;
         int match = 1;
         for (int j = 0; j < 11; j++) {
             char a = (j < 8) ? entries[i].name[j] : entries[i].ext[j-8];
@@ -67,35 +66,72 @@ fat12_entry_t *fat12_find(const char *name) {
         }
         if (match) return &entries[i];
     }
-    return 0; // Not Found
+    return 0;
 }
 
-// Read file into buffer buf (max buf_size byte)
 int fat12_read(const char *name, void *buf, uint32_t buf_size) {
     fat12_entry_t *entry = fat12_find(name);
     if (!entry) return -1;
-
     uint16_t cluster = entry->first_cluster;
     uint32_t bytes_read = 0;
     uint8_t  sector_buf[BYTES_PER_SECTOR];
-
     while (cluster < 0xFF8 && bytes_read < buf_size) {
-        // Cluster to sector
         uint32_t lba = DATA_START + (cluster - 2) * SECTORS_PER_CLUSTER;
         ata_read(lba, 1, sector_buf);
-
         uint32_t to_copy = BYTES_PER_SECTOR;
         if (bytes_read + to_copy > buf_size)
             to_copy = buf_size - bytes_read;
-
-        // Copy into buf
         uint8_t *dst = (uint8_t *)buf + bytes_read;
         for (uint32_t i = 0; i < to_copy; i++)
             dst[i] = sector_buf[i];
-
         bytes_read += to_copy;
         cluster = fat12_next_cluster(cluster);
     }
-
+    if (bytes_read > entry->file_size)
+        bytes_read = entry->file_size;
     return bytes_read;
+}
+
+static void print_uint32(uint32_t val) {
+    if (val == 0) { vga_putchar('0'); return; }
+    char tmp[12]; int i = 0;
+    while (val > 0) { tmp[i++] = '0' + (val % 10); val /= 10; }
+    for (int j = i - 1; j >= 0; j--) vga_putchar(tmp[j]);
+}
+
+int fat12_ls(void) {
+    fat12_load();
+    fat12_entry_t *entries = (fat12_entry_t *)root_buf;
+
+    vga_print_color("Name           Size\n", YELLOW);
+    vga_print_color("------------   ----\n", WHITE);
+
+    int count = 0;
+    for (int i = 0; i < ROOT_ENTRIES; i++) {
+        uint8_t first = (uint8_t)entries[i].name[0];
+        if (first == 0x00) break;
+        if (first == 0xE5) continue;
+        if (entries[i].attributes == 0x0F) continue; // LFN
+        if (entries[i].attributes & 0x08) continue;  // volume label
+
+        uint8_t color = (entries[i].attributes & 0x10) ? CYAN : GREEN;
+
+        for (int j = 0; j < 8; j++) vga_putchar(entries[i].name[j]);
+        vga_putchar('.');
+        for (int j = 0; j < 3; j++) vga_putchar(entries[i].ext[j]);
+        vga_print("   ");
+
+        if (entries[i].attributes & 0x10)
+            vga_print_color("<DIR>\n", CYAN);
+        else {
+            print_uint32(entries[i].file_size);
+            vga_putchar('\n');
+        }
+        count++;
+    }
+
+    vga_putchar('\n');
+    print_uint32(count);
+    vga_print(" file(s)\n");
+    return count;
 }

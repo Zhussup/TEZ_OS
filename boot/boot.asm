@@ -31,15 +31,9 @@ start:
     int 0x10
     jmp .loop
 .load_kernel:
-    mov ah, 0x02
-    mov al, 20
-    mov ch, 0
-    mov cl, 2
-    mov dh, 0
-    mov dl, 0x00
-    mov bx, 0x1000
-    mov es, bx
-    xor bx, bx
+    mov ah, 0x42
+    mov dl, 0x80
+    mov si, dap
     int 0x13
     jc disk_error
     cli
@@ -61,6 +55,13 @@ disk_error:
     cli
     hlt
     jmp .freeze
+dap:
+    db 0x10
+    db 0
+    dw 14
+    dw 0x0000
+    dw 0x1000
+    dq 33
 gdt_start:
     dq 0
 gdt_code:

@@ -32,8 +32,10 @@ boot/boot.bin: boot/boot.asm
 
 os.img: boot/boot.bin kernel/kernel.bin
 	dd if=/dev/zero of=os.img bs=512 count=2880
-	dd if=boot/boot.bin of=os.img conv=notrunc
-	dd if=kernel/kernel.bin of=os.img bs=512 seek=1 conv=notrunc
+	mkdosfs -F 12 -n "TEZ_OS" os.img
+	mcopy -i os.img hello.txt ::HELLO.TXT
+	dd if=boot/boot.bin of=os.img conv=notrunc bs=512 count=1
+	dd if=kernel/kernel.bin of=os.img bs=512 seek=33 conv=notrunc
 
 clean:
 	rm -f kernel/*.o kernel/*.elf kernel/kernel.bin os.img

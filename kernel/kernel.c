@@ -5,6 +5,13 @@
 #define CYAN        0x0B
 #define GREEN       0x0A
 
+#define YELLOW 0x0E
+#define RED    0x0C
+
+extern int fat12_read(const char *name, void *buf, uint32_t buf_size);
+extern int fat12_ls (void);
+
+
 extern void idt_init(void);
 extern void irq_install_handler(int irq, uint32_t handler);
 extern void keyboard_isr(void);
@@ -48,6 +55,44 @@ void vga_clear(void) {
     cursor = 0;
 }
 
+//--- string utiles---
+
+static int str_eq(const char *a, const char *b) {
+    int i = 0;
+    while (a[i] && b[i]) { if (a[i] != b[i]) return 0; i++; }
+    return a[i] == b[i];
+}
+
+static int str_starts(const char *a, const char *b) {
+    int i = 0;
+    while (b[i]) { if (a[i] != b[i]) return 0; i++; }
+    return 1;
+}
+
+static void to_fat12_name(const char *src, char *dst) {
+    int i, j;
+    for (i = 0; i < 11; i++) dst[i] = ' ';
+    dst[11] = 0;
+    i = 0; j = 0;
+    while (src[i] && src[i] != '.' && j < 8) {
+        char c = src[i];
+        if (c >= 'a' && c <= 'z') c -= 32;
+        dst[j++] = c;
+        i++;
+    }
+    while (src[i] && src[i] != '.') i++;
+    if (src[i] == '.') {
+        i++; j = 8;
+        while (src[i] && j < 11) {
+            char c = src[i];
+            if (c >= 'a' && c <= 'z') c -= 32;
+            dst[j++] = c;
+            i++;
+        }
+    }
+}
+
+
 // --- fetchy indpired:) ---
 void neofetch(void) {
     vga_print_color(" _______ _______ _______          _______ _______ \n", CYAN);
@@ -67,6 +112,52 @@ void neofetch(void) {
     vga_print("\n");
 }
 
+
+// commands for shell
+void cmd_hlp(void) {
+    vga_print_color("Available commands:\n", YELLOW);
+    vga_print_color("  hlp       ", CYAN); vga_print("- show this help\n");
+    vga_print_color("  clr       ", CYAN); vga_print("- clear the screen\n");
+    vga_print_color("  sinf      ", CYAN); vga_print("- show system info\n");
+    vga_print_color("  room      ", CYAN); vga_print("- list files on disk\n");
+    vga_print_color("  show <f>  ", CYAN); vga_print("- print file contents\n");
+}
+
+void cmd_show(const char *filename) {
+    if (!filename || !filename[0]) {
+        vga_print_color("Usage: show <filename>\n", RED);
+        return;
+    }
+    char fat_name[12];
+    to_fat12_name(filename, fat_name);
+    static char file_buf[4096];
+    int bytes = fat12_read(fat_name, file_buf, sizeof(file_buf) - 1);
+    if (bytes < 0) {
+        vga_print_color("show: not found: ", RED);
+        vga_print(filename);
+        vga_putchar('\n');
+        return;
+    }
+    file_buf[bytes] = '\0';
+    vga_print(file_buf);
+    if (bytes > 0 && file_buf[bytes-1] != '\n') vga_putchar('\n');
+}
+
+void shell_exec(const char *line) {
+    if (!line[0]) return;
+    if      (str_eq(line, "hlp"))        cmd_hlp();
+    else if (str_eq(line, "clr"))        vga_clear();
+    else if (str_eq(line, "sinf"))       neofetch();
+    else if (str_eq(line, "room"))       fat12_ls();
+    else if (str_starts(line, "show "))  cmd_show(line + 5);
+    else {
+        vga_print_color("unknown: ", RED);
+        vga_print(line); vga_putchar('\n');
+        vga_print_color("try 'hlp'\n", YELLOW);
+    }
+}
+
+
 // --- Kernel ---
 void kernel_main(void) {
     vga_clear();
@@ -75,8 +166,9 @@ void kernel_main(void) {
     __asm__ volatile ("sti");
 
     neofetch();
-
+    vga_print_color("type 'hlp' for commands\n\n", YELLOW);  // <- добавь
     vga_print_color("> ", CYAN);
+
 
     char line[128];
     int pos = 0;
@@ -87,7 +179,8 @@ void kernel_main(void) {
             if (c == '\n') {
                 line[pos] = '\0';
                 vga_putchar('\n');
-                vga_print_color("> ", CYAN);
+                shell_exec(line);
+		vga_print_color("> ", CYAN);
                 pos = 0;
             } else if (c == '\b') {
                 if (pos > 0) { pos--; vga_putchar('\b'); }
@@ -98,3 +191,4 @@ void kernel_main(void) {
         }
     }
 }
+
