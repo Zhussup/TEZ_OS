@@ -1,21 +1,82 @@
-#define VGA_MEMORY (char*)0xB8000
+#include <stdint.h>
 
-#define WHITE_ON_BLACK 0x0F
+#define VGA_MEMORY  ((char*)0xB8000)
+#define WHITE       0x0F
+#define GREEN       0x0A
 
-void kernel_main(){
-	char *vga = VGA_MEMORY;
-	const char *msg = "Hello From Kernel!";
+// declaring all external funcs
+extern void idt_init(void);
+extern void irq_install_handler(int irq, uint32_t handler);
+extern void keyboard_isr(void);     // from keyboard_isr.asm
+extern int  keyboard_has_data(void);
+extern char keyboard_getchar(void);
 
-	for(int i = 0; i < 80 * 25 * 2; i += 2){
-		vga[i]	= ' '; //character
-		vga[i + 1] = WHITE_ON_BLACK; //color ili colour hz
-	}
+// --- VGA utils ---
+static int cursor = 0;
 
-	for (int i = 0; msg[i] != '\0'; i++){
-		vga[i * 2]	= msg[i];
-		vga[i * 2 + 1]  = WHITE_ON_BLACK;
-	}
+void vga_putchar(char c) {
+    char *vga = VGA_MEMORY;
+    if (c == '\n') {
+        cursor = (cursor / 80 + 1) * 80;
+        return;
+    }
+    if (c == '\b' && cursor > 0) {
+        cursor--;
+        vga[cursor * 2]     = ' ';
+        vga[cursor * 2 + 1] = WHITE;
+        return;
+    }
+    vga[cursor * 2]     = c;
+    vga[cursor * 2 + 1] = WHITE;
+    cursor++;
+}
 
-	while (1) {}
+void vga_print(const char *s) {
+    for (int i = 0; s[i]; i++) vga_putchar(s[i]);
+}
 
+void vga_clear(void) {
+    char *vga = VGA_MEMORY;
+    for (int i = 0; i < 80 * 25 * 2; i += 2) {
+        vga[i] = ' '; vga[i+1] = WHITE;
+    }
+    cursor = 0;
+}
+
+// --- main func ---
+void kernel_main(void) {
+    vga_clear();
+    vga_print("=== MyOS ===\n");
+    vga_print("Initializing IDT...\n");
+
+    idt_init();
+    irq_install_handler(1, (uint32_t)keyboard_isr);  // IRQ1 = keyboard
+
+    __asm__ volatile ("sti");   // allowing interruption!
+
+    vga_print("Keyboard ready! Type something:\n> ");
+
+    char line[128];
+    int  pos = 0;
+
+    while (1) {
+        if (keyboard_has_data()) {
+            char c = keyboard_getchar();
+
+            if (c == '\n') {
+                line[pos] = '\0';
+                vga_putchar('\n');
+                vga_print("You typed: ");
+                vga_print(line);
+                vga_putchar('\n');
+                vga_print("> ");
+                pos = 0;
+            } else if (c == '\b') {
+                if (pos > 0) { pos--; vga_putchar('\b'); }
+            } else if (pos < 127) {
+                line[pos++] = c;
+                vga_putchar(c);
+            }
+        }
+    }
 }
