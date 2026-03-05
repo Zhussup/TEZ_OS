@@ -1,5 +1,3 @@
-and the next one is for Makefile:
-
 all: os.img
 
 kernel/entry.o: kernel/entry.asm
