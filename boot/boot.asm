@@ -57,11 +57,12 @@ disk_error:
     jmp .freeze
 dap:
     db 0x10
-    db 0
-    dw 14
-    dw 0x0000
-    dw 0x1000
-    dq 50
+	db 0
+	dw 34
+	dw 0x0000
+	dw 0x1000
+	dq 50
+
 gdt_start:
     dq 0
 gdt_code:
