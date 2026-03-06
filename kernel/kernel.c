@@ -4,21 +4,18 @@
 #define WHITE       0x0F
 #define CYAN        0x0B
 #define GREEN       0x0A
-
-#define YELLOW 0x0E
-#define RED    0x0C
-
-extern int fat12_read(const char *name, void *buf, uint32_t buf_size);
-extern int fat12_ls (void);
-
+#define YELLOW      0x0E
+#define RED         0x0C
 
 extern void idt_init(void);
 extern void irq_install_handler(int irq, uint32_t handler);
 extern void keyboard_isr(void);
 extern int  keyboard_has_data(void);
 extern char keyboard_getchar(void);
+extern int  fat12_read(const char *name, void *buf, uint32_t buf_size);
+extern int  fat12_ls(void);
+extern void tuze_open(const char *fat_name);
 
-// --- VGA ---
 static int cursor = 0;
 
 void vga_putchar(char c) {
@@ -55,8 +52,6 @@ void vga_clear(void) {
     cursor = 0;
 }
 
-//--- string utiles---
-
 static int str_eq(const char *a, const char *b) {
     int i = 0;
     while (a[i] && b[i]) { if (a[i] != b[i]) return 0; i++; }
@@ -92,8 +87,6 @@ static void to_fat12_name(const char *src, char *dst) {
     }
 }
 
-
-// --- fetchy indpired:) ---
 void neofetch(void) {
     vga_print_color(" _______ _______ _______          _______ _______ \n", CYAN);
     vga_print_color("|__   __|  _____|___   /        |  ___  ||  _____|\n", CYAN);
@@ -102,18 +95,16 @@ void neofetch(void) {
     vga_print_color("   | |  | |___   / /__  _______ | |___| ||_____| |\n", CYAN);
     vga_print_color("   |_|  |_____|_/_____| |_____| |_______||_______|\n", CYAN);
     vga_print("\n");
-    vga_print_color("  OS:      ", WHITE); vga_print_color("TEZ_OS\n",           GREEN);
-    vga_print_color("  Arch:    ", WHITE); vga_print_color("x86 32-bit\n",       GREEN);
-    vga_print_color("  Kernel:  ", WHITE); vga_print_color("JZA kernel\n",   GREEN);
+    vga_print_color("  OS:      ", WHITE); vga_print_color("TEZ_OS\n",            GREEN);
+    vga_print_color("  Arch:    ", WHITE); vga_print_color("x86 32-bit\n",        GREEN);
+    vga_print_color("  Kernel:  ", WHITE); vga_print_color("JZA kernel\n",        GREEN);
     vga_print_color("  Boot:    ", WHITE); vga_print_color("custom bootloader\n", GREEN);
-    vga_print_color("  FS:      ", WHITE); vga_print_color("FAT12\n",            GREEN);
-    vga_print_color("  Display: ", WHITE); vga_print_color("VGA text 80x25\n",   GREEN);
-    vga_print_color("  Input:   ", WHITE); vga_print_color("PS/2 keyboard\n",    GREEN);
+    vga_print_color("  FS:      ", WHITE); vga_print_color("FAT12\n",             GREEN);
+    vga_print_color("  Display: ", WHITE); vga_print_color("VGA text 80x25\n",    GREEN);
+    vga_print_color("  Input:   ", WHITE); vga_print_color("PS/2 keyboard\n",     GREEN);
     vga_print("\n");
 }
 
-
-// commands for shell
 void cmd_hlp(void) {
     vga_print_color("Available commands:\n", YELLOW);
     vga_print_color("  hlp       ", CYAN); vga_print("- show this help\n");
@@ -121,6 +112,7 @@ void cmd_hlp(void) {
     vga_print_color("  sinf      ", CYAN); vga_print("- show system info\n");
     vga_print_color("  room      ", CYAN); vga_print("- list files on disk\n");
     vga_print_color("  show <f>  ", CYAN); vga_print("- print file contents\n");
+    vga_print_color("  tuze <f>  ", CYAN); vga_print("- edit file\n");
 }
 
 void cmd_show(const char *filename) {
@@ -153,6 +145,16 @@ void shell_exec(const char *line) {
     else if (str_eq(line, "sinf"))       neofetch();
     else if (str_eq(line, "room"))       fat12_ls();
     else if (str_starts(line, "show "))  cmd_show(line + 5);
+    else if (str_starts(line, "tuze ")) {
+        char fat_name[12];
+        to_fat12_name(line + 5, fat_name);
+        vga_clear();
+        tuze_open(fat_name);
+        vga_clear();
+        vga_print_color("type 'hlp' for commands\n\n", YELLOW);
+        vga_print_color("> ", CYAN);
+        return;
+    }
     else {
         vga_print_color("unknown: ", RED);
         vga_print(line); vga_putchar('\n');
@@ -160,8 +162,6 @@ void shell_exec(const char *line) {
     }
 }
 
-
-// --- Kernel ---
 void kernel_main(void) {
     vga_clear();
     idt_init();
@@ -169,9 +169,8 @@ void kernel_main(void) {
     __asm__ volatile ("sti");
 
     neofetch();
-    vga_print_color("type 'hlp' for commands\n\n", YELLOW);  // <- добавь
+    vga_print_color("type 'hlp' for commands\n\n", YELLOW);
     vga_print_color("> ", CYAN);
-
 
     char line[128];
     int pos = 0;
@@ -183,8 +182,8 @@ void kernel_main(void) {
                 line[pos] = '\0';
                 vga_putchar('\n');
                 shell_exec(line);
-		vga_print_color("> ", CYAN);
                 pos = 0;
+                vga_print_color("> ", CYAN);
             } else if (c == '\b') {
                 if (pos > 0) { pos--; vga_putchar('\b'); }
             } else if (pos < 127) {
@@ -194,4 +193,3 @@ void kernel_main(void) {
         }
     }
 }
-

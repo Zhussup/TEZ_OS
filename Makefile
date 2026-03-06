@@ -21,10 +21,13 @@ kernel/ata.o: kernel/ata.c
 kernel/fat12.o: kernel/fat12.c
 	gcc -m32 -ffreestanding -fno-builtin -nostdlib -fno-pic -c kernel/fat12.c -o kernel/fat12.o
 
-kernel/kernel.bin: kernel/entry.o kernel/keyboard_isr.o kernel/kernel.o kernel/idt.o kernel/keyboard.o kernel/ata.o kernel/fat12.o
+kernel/tuze.o: kernel/tuze.c
+	gcc -m32 -ffreestanding -fno-builtin -nostdlib -fno-pic -c kernel/tuze.c -o kernel/tuze.o
+
+kernel/kernel.bin: kernel/entry.o kernel/keyboard_isr.o kernel/kernel.o kernel/idt.o kernel/keyboard.o kernel/ata.o kernel/fat12.o kernel/tuze.o
 	ld -m elf_i386 -T kernel/linker.ld -o kernel/kernel.elf \
 		kernel/entry.o kernel/keyboard_isr.o kernel/kernel.o \
-		kernel/idt.o kernel/keyboard.o kernel/ata.o kernel/fat12.o
+		kernel/idt.o kernel/keyboard.o kernel/ata.o kernel/fat12.o kernel/tuze.o
 	objcopy -O binary kernel/kernel.elf kernel/kernel.bin
 
 boot/boot.bin: boot/boot.asm
