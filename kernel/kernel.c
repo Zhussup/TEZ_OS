@@ -138,8 +138,11 @@ void cmd_show(const char *filename) {
         vga_putchar('\n');
         return;
     }
-    file_buf[bytes] = '\0';
-    vga_print(file_buf);
+    for (int i = 0; i < bytes; i++) {
+        char c = file_buf[i];
+        if (c >= 0x20 || c == '\n' || c == '\r' || c == '\t')
+            vga_putchar(c);
+    }
     if (bytes > 0 && file_buf[bytes-1] != '\n') vga_putchar('\n');
 }
 

@@ -61,7 +61,7 @@ dap:
     dw 14
     dw 0x0000
     dw 0x1000
-    dq 33
+    dq 50
 gdt_start:
     dq 0
 gdt_code:
