@@ -174,6 +174,8 @@ static void delete_char(void) {
 static void tuze_save(void) {
     fat12_write(tfilename, tbuf, tlen);
     modified = 0;
+
+	// saved message
 }
 
 // main loop of tuze
@@ -199,7 +201,12 @@ void tuze_open(const char *fat_name) {
         if (c == 0x13) {
             tuze_save();
             tuze_draw();
-            continue;
+		//saved
+		const const char *msg = "  SAVED!";
+		for (int i = 0; msg[i]; i++){
+		vga_set(24, i, msg[i], 0x2F);
+		}
+		continue;
         }
         if (c == 0x11) {
             break; // quit
