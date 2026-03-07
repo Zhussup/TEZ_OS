@@ -18,6 +18,13 @@ extern void tuze_open(const char *fat_name);
 
 static int cursor = 0;
 
+// history
+#define HISTORY_SIZE 16
+static char history[HISTORY_SIZE][128];
+static int  history_count = 0;
+static int  history_idx   = -1;
+
+
 
 static void vga_scroll(void) {
     char *vga = VGA_MEMORY;
@@ -158,6 +165,19 @@ void cmd_show(const char *filename) {
 
 void shell_exec(const char *line) {
     if (!line[0]) return;
+
+    // HISTORY
+    if (line[0]) {
+        int slot = history_count % HISTORY_SIZE;
+        int i = 0;
+        while (line[i]) { history[slot][i] = line[i]; i++; }
+        history[slot][i] = 0;
+        history_count++;
+    }
+    history_idx = -1;
+
+    history_idx = -1;
+
     if      (str_eq(line, "hlp"))        cmd_hlp();
     else if (str_eq(line, "clr"))        vga_clear();
     else if (str_eq(line, "sinf"))       neofetch();
@@ -199,11 +219,44 @@ void kernel_main(void) {
             if (c == '\n') {
                 line[pos] = '\0';
                 vga_putchar('\n');
+                history_idx = -1;
                 shell_exec(line);
                 pos = 0;
                 vga_print_color("> ", CYAN);
             } else if (c == '\b') {
                 if (pos > 0) { pos--; vga_putchar('\b'); }
+            } else if ((uint8_t)c == 0x80) { // KEY_UP
+                if (history_count > 0) {
+                    if (history_idx == -1)
+                        history_idx = (history_count - 1) % HISTORY_SIZE;
+                    else if (history_idx != (history_count > HISTORY_SIZE ?
+                             (history_count % HISTORY_SIZE) : 0))
+                        history_idx = (history_idx - 1 + HISTORY_SIZE) % HISTORY_SIZE;
+                    // стираем текущую строку
+                    while (pos > 0) { pos--; vga_putchar('\b'); }
+                    // вставляем из истории
+                    int i = 0;
+                    while (history[history_idx][i]) {
+                        line[pos++] = history[history_idx][i];
+                        vga_putchar(history[history_idx][i]);
+                        i++;
+                    }
+                }
+            } else if ((uint8_t)c == 0x81) { // KEY_DOWN
+                while (pos > 0) { pos--; vga_putchar('\b'); }
+                if (history_idx != -1) {
+                    history_idx = (history_idx + 1) % HISTORY_SIZE;
+                    if (history_idx == history_count % HISTORY_SIZE) {
+                        history_idx = -1;
+                    } else {
+                        int i = 0;
+                        while (history[history_idx][i]) {
+                            line[pos++] = history[history_idx][i];
+                            vga_putchar(history[history_idx][i]);
+                            i++;
+                        }
+                    }
+                }
             } else if (pos < 127) {
                 line[pos++] = c;
                 vga_putchar(c);
