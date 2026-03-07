@@ -18,9 +18,26 @@ extern void tuze_open(const char *fat_name);
 
 static int cursor = 0;
 
+
+static void vga_scroll(void) {
+    char *vga = VGA_MEMORY;
+    // move one line up
+    for (int i = 0; i < 80 * 24 * 2; i++)
+        vga[i] = vga[i + 80 * 2];
+    // clearing last line
+    for (int i = 80 * 24 * 2; i < 80 * 25 * 2; i += 2) {
+        vga[i] = ' '; vga[i+1] = WHITE;
+    }
+    cursor -= 80;
+}
+
 void vga_putchar(char c) {
     char *vga = VGA_MEMORY;
-    if (c == '\n') { cursor = (cursor / 80 + 1) * 80; return; }
+    if (c == '\n') {
+        cursor = (cursor / 80 + 1) * 80;
+        if (cursor >= 80 * 25) vga_scroll();
+        return;
+    }
     if (c == '\b' && cursor > 0) {
         cursor--;
         vga[cursor * 2] = ' '; vga[cursor * 2 + 1] = WHITE;
@@ -28,6 +45,7 @@ void vga_putchar(char c) {
     }
     vga[cursor * 2] = c; vga[cursor * 2 + 1] = WHITE;
     cursor++;
+    if (cursor >= 80 * 25) vga_scroll();
 }
 
 void vga_print(const char *s) {
