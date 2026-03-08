@@ -17,6 +17,47 @@ extern int  fat12_write(const char *name, void *buf, uint32_t size);
 extern int  fat12_delete(const char *name);
 extern int  fat12_ls(void);
 extern void tuze_open(const char *fat_name);
+extern int  calc_eval(const char *expr, char *out_buf);
+extern void calc_interactive(void);
+extern void tez_run_file(const char *fat_name);
+extern void tez_repl(void);
+
+typedef struct { uint8_t sec, min, hour, day, month; uint16_t year; } rtc_time_t;
+extern void rtc_get(rtc_time_t *t);
+extern void pit_init(void);
+extern void pit_isr(void);
+extern void irq_install_handler(int irq, uint32_t handler);
+
+/* write time/date directly to top-right VGA corner, no cursor change */
+void clock_update(void) {
+    rtc_time_t t;
+    rtc_get(&t);
+
+    /* format: "HH:MM:SS DD/MM/YYYY" = 19 chars, cols 61..79 */
+    char buf[20];
+    buf[0]  = '0' + t.hour / 10;  buf[1]  = '0' + t.hour % 10;
+    buf[2]  = ':';
+    buf[3]  = '0' + t.min  / 10;  buf[4]  = '0' + t.min  % 10;
+    buf[5]  = ':';
+    buf[6]  = '0' + t.sec  / 10;  buf[7]  = '0' + t.sec  % 10;
+    buf[8]  = ' ';
+    buf[9]  = '0' + t.day   / 10; buf[10] = '0' + t.day   % 10;
+    buf[11] = '/';
+    buf[12] = '0' + t.month / 10; buf[13] = '0' + t.month % 10;
+    buf[14] = '/';
+    buf[15] = '0' + (t.year / 1000) % 10;
+    buf[16] = '0' + (t.year / 100)  % 10;
+    buf[17] = '0' + (t.year / 10)   % 10;
+    buf[18] = '0' + t.year          % 10;
+    buf[19] = 0;
+
+    char *vga = VGA_MEMORY;
+    int col = 61; /* 80 - 19 */
+    for (int i = 0; i < 19; i++) {
+        vga[(col + i) * 2]     = buf[i];
+        vga[(col + i) * 2 + 1] = CYAN;
+    }
+}
 
 static int cursor = 0;
 
@@ -64,10 +105,15 @@ void vga_print(const char *s) {
 void vga_print_color(const char *s, uint8_t color) {
     char *vga = VGA_MEMORY;
     for (int i = 0; s[i]; i++) {
-        if (s[i] == '\n') { cursor = (cursor / 80 + 1) * 80; continue; }
+        if (s[i] == '\n') {
+            cursor = (cursor / 80 + 1) * 80;
+            if (cursor >= 80 * 25) vga_scroll();
+            continue;
+        }
         vga[cursor * 2]     = s[i];
         vga[cursor * 2 + 1] = color;
         cursor++;
+        if (cursor >= 80 * 25) vga_scroll();
     }
 }
 
@@ -134,14 +180,19 @@ void neofetch(void) {
 
 void cmd_hlp(void) {
     vga_print_color("Available commands:\n", YELLOW);
-    vga_print_color("  hlp       ", CYAN); vga_print("- show this help\n");
-    vga_print_color("  clr       ", CYAN); vga_print("- clear the screen\n");
-    vga_print_color("  sinf      ", CYAN); vga_print("- show system info\n");
-    vga_print_color("  room      ", CYAN); vga_print("- list files on disk\n");
-    vga_print_color("  show <f>  ", CYAN); vga_print("- print file contents\n");
-    vga_print_color("  tuze <f>  ", CYAN); vga_print("- edit file\n");
-    vga_print_color("  del  <f>  ", CYAN); vga_print("- delete file\n");
-    vga_print_color("  mkf  <f> <text>  ", CYAN); vga_print("- create file with text\n");
+    vga_print_color("  hlp           ", CYAN); vga_print("- show this help\n");
+    vga_print_color("  clr           ", CYAN); vga_print("- clear the screen\n");
+    vga_print_color("  sinf          ", CYAN); vga_print("- show system info\n");
+    vga_print_color("  room          ", CYAN); vga_print("- list files on disk\n");
+    vga_print_color("  show <f>      ", CYAN); vga_print("- print file contents\n");
+    vga_print_color("  tuze <f>      ", CYAN); vga_print("- edit file\n");
+    vga_print_color("  del  <f>      ", CYAN); vga_print("- delete file\n");
+    vga_print_color("  mkf <f> <txt> ", CYAN); vga_print("- create file with text\n");
+    vga_print_color("  calc          ", CYAN); vga_print("- interactive calculator\n");
+    vga_print_color("  calc <expr>   ", CYAN); vga_print("- evaluate expression\n");
+    vga_print_color("  time          ", CYAN); vga_print("- show current time and date\n");
+    vga_print_color("  tez           ", CYAN); vga_print("- tez language REPL\n");
+    vga_print_color("  run <f.tez>   ", CYAN); vga_print("- run tez script from disk\n");
 }
 
 void cmd_show(const char *filename) {
@@ -177,12 +228,10 @@ void cmd_del(const char *filename) {
     int res = fat12_delete(fat_name);
     if (res == 0) {
         vga_print_color("deleted: ", GREEN);
-        vga_print(filename);
-        vga_putchar('\n');
+        vga_print(filename); vga_putchar('\n');
     } else {
         vga_print_color("del: not found: ", RED);
-        vga_print(filename);
-        vga_putchar('\n');
+        vga_print(filename); vga_putchar('\n');
     }
 }
 
@@ -191,33 +240,58 @@ void cmd_mkf(const char *args) {
         vga_print_color("Usage: mkf <filename> <text>\n", RED);
         return;
     }
-    // разбиваем args на имя и текст
     int i = 0;
     char fname[64];
-    while (args[i] && args[i] != ' ' && i < 63) {
-        fname[i] = args[i];
-        i++;
-    }
+    while (args[i] && args[i] != ' ' && i < 63) { fname[i] = args[i]; i++; }
     fname[i] = 0;
-
-    const char *text = "";
-    if (args[i] == ' ') text = args + i + 1;
-
+    const char *text = (args[i] == ' ') ? args + i + 1 : "";
     char fat_name[12];
     to_fat12_name(fname, fat_name);
-
-    // вычисляем длину текста
     uint32_t len = 0;
     while (text[len]) len++;
-
     int res = fat12_write(fat_name, (void *)text, len);
     if (res >= 0) {
         vga_print_color("created: ", GREEN);
-        vga_print(fname);
-        vga_putchar('\n');
+        vga_print(fname); vga_putchar('\n');
     } else {
         vga_print_color("mkf: failed (disk full or root full)\n", RED);
     }
+}
+
+void cmd_time(void) {
+    rtc_time_t t;
+    rtc_get(&t);
+    vga_print_color("time: ", CYAN);
+    char buf[3];
+    buf[2] = 0;
+    buf[0] = '0' + t.hour / 10; buf[1] = '0' + t.hour % 10; vga_print(buf); vga_putchar(':');
+    buf[0] = '0' + t.min  / 10; buf[1] = '0' + t.min  % 10; vga_print(buf); vga_putchar(':');
+    buf[0] = '0' + t.sec  / 10; buf[1] = '0' + t.sec  % 10; vga_print(buf);
+    vga_print_color("  date: ", CYAN);
+    buf[0] = '0' + t.day   / 10; buf[1] = '0' + t.day   % 10; vga_print(buf); vga_putchar('/');
+    buf[0] = '0' + t.month / 10; buf[1] = '0' + t.month % 10; vga_print(buf); vga_putchar('/');
+    char yr[5]; yr[4] = 0;
+    yr[0] = '0' + (t.year/1000)%10; yr[1] = '0' + (t.year/100)%10;
+    yr[2] = '0' + (t.year/10)%10;   yr[3] = '0' + t.year%10;
+    vga_print(yr); vga_putchar('\n');
+}
+
+void cmd_calc(const char *expr) {
+    if (!expr || !expr[0]) {
+        vga_putchar('\n');
+        calc_interactive();
+        vga_print_color("> ", CYAN);
+        return;
+    }
+    char result[64];
+    int ok = calc_eval(expr, result);
+    if (ok == 0) {
+        vga_print_color("= ", GREEN);
+        vga_print_color(result, GREEN);
+    } else {
+        vga_print_color(result, RED);
+    }
+    vga_putchar('\n');
 }
 
 void shell_exec(const char *line) {
@@ -239,6 +313,15 @@ void shell_exec(const char *line) {
     else if (str_eq(line, "clr"))        vga_clear();
     else if (str_eq(line, "sinf"))       neofetch();
     else if (str_eq(line, "room"))       fat12_ls();
+    else if (str_eq(line, "calc"))       cmd_calc("");
+    else if (str_starts(line, "calc "))  cmd_calc(line + 5);
+    else if (str_eq(line, "time"))       cmd_time();
+    else if (str_eq(line, "tez"))        { vga_putchar('\n'); tez_repl(); vga_print_color("> ", CYAN); return; }
+    else if (str_starts(line, "run "))   {
+        char fat_name[12];
+        to_fat12_name(line + 4, fat_name);
+        tez_run_file(fat_name);
+    }
     else if (str_starts(line, "show "))  cmd_show(line + 5);
     else if (str_starts(line, "del "))   cmd_del(line + 4);
     else if (str_starts(line, "mkf "))   cmd_mkf(line + 4);
@@ -262,7 +345,10 @@ void shell_exec(const char *line) {
 void kernel_main(void) {
     vga_clear();
     idt_init();
+    irq_install_handler(0, (uint32_t)pit_isr);
     irq_install_handler(1, (uint32_t)keyboard_isr);
+    pit_init();
+    clock_update();
     __asm__ volatile ("sti");
 
     neofetch();
