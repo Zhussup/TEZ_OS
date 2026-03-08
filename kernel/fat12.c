@@ -72,10 +72,12 @@ fat12_entry_t *fat12_find(const char *name) {
 int fat12_read(const char *name, void *buf, uint32_t buf_size) {
     fat12_entry_t *entry = fat12_find(name);
     if (!entry) return -1;
+    // пустой файл — кластеров нет
+    if (entry->file_size == 0 || entry->first_cluster < 2) return 0;
     uint16_t cluster = entry->first_cluster;
     uint32_t bytes_read = 0;
     uint8_t  sector_buf[BYTES_PER_SECTOR];
-    while (cluster < 0xFF8 && bytes_read < buf_size) {
+    while (cluster >= 2 && cluster < 0xFF8 && bytes_read < buf_size) {
         uint32_t lba = DATA_START + (cluster - 2) * SECTORS_PER_CLUSTER;
         ata_read(lba, 1, sector_buf);
         uint32_t to_copy = BYTES_PER_SECTOR;
@@ -170,6 +172,40 @@ static void fat12_flush_root(void) {
     ata_write(ROOT_START, ROOT_SECTORS, root_buf);
 }
 
+int fat12_delete(const char *name) {
+    fat12_load();
+    fat12_entry_t *entries = (fat12_entry_t *)root_buf;
+
+    for (int i = 0; i < ROOT_ENTRIES; i++) {
+        uint8_t first = (uint8_t)entries[i].name[0];
+        if (first == 0x00) break;
+        if (first == 0xE5) continue;
+
+        int match = 1;
+        for (int j = 0; j < 11; j++) {
+            char a = (j < 8) ? entries[i].name[j] : entries[i].ext[j-8];
+            if (a != name[j]) { match = 0; break; }
+        }
+        if (!match) continue;
+
+        // освобождаем цепочку кластеров
+        uint16_t c = entries[i].first_cluster;
+        while (c >= 0x002 && c < 0xFF8) {
+            uint16_t next = fat12_next_cluster(c);
+            fat12_set(c, 0x000);
+            c = next;
+        }
+
+        // помечаем запись как удалённую
+        entries[i].name[0] = (char)0xE5;
+
+        fat12_flush_fat();
+        fat12_flush_root();
+        return 0;
+    }
+    return -1; // не найден
+}
+
 int fat12_write(const char *name, void *buf, uint32_t size) {
     fat12_load();
     fat12_entry_t *entries = (fat12_entry_t *)root_buf;
@@ -238,6 +274,13 @@ int fat12_write(const char *name, void *buf, uint32_t size) {
     }
 
     entry->file_size = size;
+
+    // если size == 0 — файл пустой, кластеров нет, first_cluster уже 0
+    if (size == 0) {
+        fat12_flush_fat();
+        fat12_flush_root();
+        return 0;
+    }
 
     fat12_flush_fat();
     fat12_flush_root();

@@ -13,6 +13,8 @@ extern void keyboard_isr(void);
 extern int  keyboard_has_data(void);
 extern char keyboard_getchar(void);
 extern int  fat12_read(const char *name, void *buf, uint32_t buf_size);
+extern int  fat12_write(const char *name, void *buf, uint32_t size);
+extern int  fat12_delete(const char *name);
 extern int  fat12_ls(void);
 extern void tuze_open(const char *fat_name);
 
@@ -138,6 +140,8 @@ void cmd_hlp(void) {
     vga_print_color("  room      ", CYAN); vga_print("- list files on disk\n");
     vga_print_color("  show <f>  ", CYAN); vga_print("- print file contents\n");
     vga_print_color("  tuze <f>  ", CYAN); vga_print("- edit file\n");
+    vga_print_color("  del  <f>  ", CYAN); vga_print("- delete file\n");
+    vga_print_color("  mkf  <f> <text>  ", CYAN); vga_print("- create file with text\n");
 }
 
 void cmd_show(const char *filename) {
@@ -163,6 +167,59 @@ void cmd_show(const char *filename) {
     if (bytes > 0 && file_buf[bytes-1] != '\n') vga_putchar('\n');
 }
 
+void cmd_del(const char *filename) {
+    if (!filename || !filename[0]) {
+        vga_print_color("Usage: del <filename>\n", RED);
+        return;
+    }
+    char fat_name[12];
+    to_fat12_name(filename, fat_name);
+    int res = fat12_delete(fat_name);
+    if (res == 0) {
+        vga_print_color("deleted: ", GREEN);
+        vga_print(filename);
+        vga_putchar('\n');
+    } else {
+        vga_print_color("del: not found: ", RED);
+        vga_print(filename);
+        vga_putchar('\n');
+    }
+}
+
+void cmd_mkf(const char *args) {
+    if (!args || !args[0]) {
+        vga_print_color("Usage: mkf <filename> <text>\n", RED);
+        return;
+    }
+    // разбиваем args на имя и текст
+    int i = 0;
+    char fname[64];
+    while (args[i] && args[i] != ' ' && i < 63) {
+        fname[i] = args[i];
+        i++;
+    }
+    fname[i] = 0;
+
+    const char *text = "";
+    if (args[i] == ' ') text = args + i + 1;
+
+    char fat_name[12];
+    to_fat12_name(fname, fat_name);
+
+    // вычисляем длину текста
+    uint32_t len = 0;
+    while (text[len]) len++;
+
+    int res = fat12_write(fat_name, (void *)text, len);
+    if (res >= 0) {
+        vga_print_color("created: ", GREEN);
+        vga_print(fname);
+        vga_putchar('\n');
+    } else {
+        vga_print_color("mkf: failed (disk full or root full)\n", RED);
+    }
+}
+
 void shell_exec(const char *line) {
     if (!line[0]) return;
 
@@ -183,6 +240,8 @@ void shell_exec(const char *line) {
     else if (str_eq(line, "sinf"))       neofetch();
     else if (str_eq(line, "room"))       fat12_ls();
     else if (str_starts(line, "show "))  cmd_show(line + 5);
+    else if (str_starts(line, "del "))   cmd_del(line + 4);
+    else if (str_starts(line, "mkf "))   cmd_mkf(line + 4);
     else if (str_starts(line, "tuze ")) {
         char fat_name[12];
         to_fat12_name(line + 5, fat_name);
