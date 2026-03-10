@@ -44,7 +44,9 @@ sudo apt install nasm gcc gcc-multilib binutils make qemu-system-x86 mtools
 ## Build & Run
 ```bash
 make clean && make
-qemu-system-i386 -drive file=os.img,format=raw,if=floppy
+cp os.img os2.img
+qemu-system-i386 -drive file=os.img,format=raw,if=floppy -drive 
+file=os2.img,format=raw,if=ide
 ```
 
 ## Add a file to disk
